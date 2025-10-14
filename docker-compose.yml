@@ -1,0 +1,81 @@
+version: '3.9'
+
+services:
+  n8n:
+    build:
+      context: .
+      dockerfile: ./dockerfile
+    container_name: n8n
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=false
+      - N8N_HOST=n8n
+      - N8N_PORT=5678
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_RUNNERS_ENABLED=true
+      - OTEL_SERVICE_NAME=n8n
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+      - OTEL_LOG_LEVEL=info
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./data:/root/.n8n
+      - ./tracing.js:/otel/tracing.js
+      - ./n8n-otel-instrumentation.js:/otel/n8n-otel-instrumentation.js
+    depends_on:
+      - otel-collector
+    restart: unless-stopped
+    networks:
+      - observability
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.90.1
+    container_name: otel-collector
+    command: ["--config=/etc/otel-collector-config.yml"]
+    volumes:
+      - ./otel-collector-config.yml:/etc/otel-collector-config.yml
+    ports:
+      - "8888:8888"  # Prometheus metrics
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+    networks:
+      - observability
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: jaeger
+    ports:
+      - "16686:16686"  # UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    restart: unless-stopped
+    networks:
+      - observability
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - observability
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: grafana-n8n
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - observability
+    depends_on:
+      - prometheus
+      - jaeger
+
+networks:
+  observability:
+    driver: bridge
