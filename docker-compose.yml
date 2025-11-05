@@ -16,6 +16,14 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_LOG_LEVEL=info
+      # === Postgres ===
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=n8n
+      - DB_POSTGRESDB_PASSWORD=n8n
+      - DB_POSTGRESDB_LOGGING_ENABLED=false
     ports:
       - "5678:5678"
     volumes:
@@ -24,6 +32,7 @@ services:
       - ./n8n-otel-instrumentation.js:/otel/n8n-otel-instrumentation.js
     depends_on:
       - otel-collector
+      - postgres  
     restart: unless-stopped
     networks:
       - observability
@@ -76,6 +85,22 @@ services:
       - prometheus
       - jaeger
 
+  postgres:
+    image: postgres:15ainda 
+    container_name: postgres
+    environment:
+      - POSTGRES_USER=n8n
+      - POSTGRES_PASSWORD=n8n
+      - POSTGRES_DB=n8n
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - observability
+
 networks:
   observability:
     driver: bridge
+
+volumes:
+  postgres_data:
