@@ -22,7 +22,7 @@ function setupN8nOpenTelemetry() {
     let WorkflowExecute;
     try {
       // path n8n core
-      WorkflowExecute = require('/usr/local/lib/node_modules/n8n/node_modules/.pnpm/n8n-core@file+packages+core_@opentelemetry+api@1.9.0_@opentelemetry+sdk-trace-base@1.30_5aee33ef851c7de341eb325c6a25e0ff/node_modules/n8n-core').WorkflowExecute;
+      WorkflowExecute = require('/usr/local/lib/node_modules/n8n/node_modules/n8n-core').WorkflowExecute;
       console.log("Loaded WorkflowExecute from global n8n-core");
     } catch (err) {
       console.error("Failed to load n8n-core from global path:", err);

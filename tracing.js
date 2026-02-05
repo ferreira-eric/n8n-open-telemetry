@@ -1,5 +1,5 @@
-process.env.NODE_PATH = '/usr/local/lib/node_modules';
-require('module').Module._initPaths();
+//process.env.NODE_PATH = '/usr/local/lib/node_modules';
+//require('module').Module._initPaths();
 
 "use strict";
 
@@ -10,7 +10,8 @@ const { context } = require("@opentelemetry/api");
 const contextManager = new AsyncHooksContextManager();
 context.setGlobalContextManager(contextManager.enable());
 */
-
+const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
 const opentelemetry = require("@opentelemetry/sdk-node");
 const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
 const { OTLPLogExporter } = require("@opentelemetry/exporter-logs-otlp-http");
@@ -32,9 +33,7 @@ const autoInstrumentations = getNodeAutoInstrumentations({
   "@opentelemetry/instrumentation-net": { enabled: false },
   "@opentelemetry/instrumentation-tls": { enabled: false },
   "@opentelemetry/instrumentation-fs": { enabled: false },
-  "@opentelemetry/instrumentation-pg": {
-    enhancedDatabaseReporting: true,
-  }
+  "@opentelemetry/instrumentation-pg": { enabled: false }
 });
 
 registerInstrumentations({
@@ -55,6 +54,14 @@ const sdk = new opentelemetry.NodeSDK({
   traceExporter: new OTLPTraceExporter({
     url: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || "http://otel-collector:4318/v1/traces",
   }),
+  metricReader: new PeriodicExportingMetricReader({
+    exporter: new OTLPMetricExporter({
+      url: process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || "http://otel-collector:4318/v1/metrics",
+    }),
+    exportIntervalMillis: 15000, 
+  }),
+  
+  instrumentations: [autoInstrumentations],
 });
 
 
