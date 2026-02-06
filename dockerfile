@@ -15,6 +15,7 @@ RUN npm install -g --legacy-peer-deps \
     @opentelemetry/resources@1.6.0 \
     @opentelemetry/semantic-conventions@1.6.0 \
     @opentelemetry/instrumentation@0.43.0 \
+    @opentelemetry/instrumentation-runtime-node@latest \
     @opentelemetry/instrumentation-winston@0.43.0 \
     @opentelemetry/winston-transport@0.10.0 \
     winston@3.9.0 \

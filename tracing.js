@@ -1,20 +1,14 @@
-//process.env.NODE_PATH = '/usr/local/lib/node_modules';
-//require('module').Module._initPaths();
+process.env.NODE_PATH = '/usr/local/lib/node_modules';
+require('module').Module._initPaths();
 
 "use strict";
 
-// Enable proper async context propagation globally.
-/*
-const { AsyncHooksContextManager } = require("@opentelemetry/context-async-hooks");
-const { context } = require("@opentelemetry/api");
-const contextManager = new AsyncHooksContextManager();
-context.setGlobalContextManager(contextManager.enable());
-*/
-const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
-const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
 const opentelemetry = require("@opentelemetry/sdk-node");
 const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
 const { OTLPLogExporter } = require("@opentelemetry/exporter-logs-otlp-http");
+const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
+const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
+
 const { getNodeAutoInstrumentations } = require("@opentelemetry/auto-instrumentations-node");
 const { registerInstrumentations } = require("@opentelemetry/instrumentation");
 const { Resource } = require("@opentelemetry/resources");
@@ -40,9 +34,8 @@ registerInstrumentations({
   instrumentations: [autoInstrumentations],
 });
 
-setupN8nOpenTelemetry();
-
 const sdk = new opentelemetry.NodeSDK({
+
   logRecordProcessors: [
     new opentelemetry.logs.SimpleLogRecordProcessor(new OTLPLogExporter({
       url: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || "http://otel-collector:4318/v1/logs",
@@ -58,12 +51,9 @@ const sdk = new opentelemetry.NodeSDK({
     exporter: new OTLPMetricExporter({
       url: process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || "http://otel-collector:4318/v1/metrics",
     }),
-    exportIntervalMillis: 15000, 
+    exportIntervalMillis: 10000, 
   }),
-  
-  instrumentations: [autoInstrumentations],
 });
-
 
 process.on("uncaughtException", async (err) => {
   logger.error("Uncaught Exception", { error: err });
@@ -85,5 +75,6 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 sdk.start();
+setupN8nOpenTelemetry();
 
 console.log("OpenTelemetry SDK started for n8n");

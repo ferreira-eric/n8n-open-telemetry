@@ -14,6 +14,9 @@ services:
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_LOG_LEVEL=info
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_METRICS=true
+      - N8N_METRICS_INCLUDE_MESSAGE_EVENT_BUS_METRICS=true
+      - N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL=true
       # === Postgres ===
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
