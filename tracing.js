@@ -8,7 +8,7 @@ const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http")
 const { OTLPLogExporter } = require("@opentelemetry/exporter-logs-otlp-http");
 const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
 const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
-
+const { RuntimeNodeInstrumentation } = require('@opentelemetry/instrumentation-runtime-node');
 const { getNodeAutoInstrumentations } = require("@opentelemetry/auto-instrumentations-node");
 const { registerInstrumentations } = require("@opentelemetry/instrumentation");
 const { Resource } = require("@opentelemetry/resources");
@@ -31,11 +31,13 @@ const autoInstrumentations = getNodeAutoInstrumentations({
 });
 
 registerInstrumentations({
-  instrumentations: [autoInstrumentations],
+  instrumentations: [
+    autoInstrumentations,
+    new RuntimeNodeInstrumentation(), 
+  ],
 });
 
 const sdk = new opentelemetry.NodeSDK({
-
   logRecordProcessors: [
     new opentelemetry.logs.SimpleLogRecordProcessor(new OTLPLogExporter({
       url: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || "http://otel-collector:4318/v1/logs",
@@ -47,12 +49,17 @@ const sdk = new opentelemetry.NodeSDK({
   traceExporter: new OTLPTraceExporter({
     url: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || "http://otel-collector:4318/v1/traces",
   }),
+  
   metricReader: new PeriodicExportingMetricReader({
     exporter: new OTLPMetricExporter({
       url: process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || "http://otel-collector:4318/v1/metrics",
     }),
-    exportIntervalMillis: 10000, 
+    exportIntervalMillis: 10000, // Exporta a cada 10s
   }),
+  instrumentations: [
+    autoInstrumentations,
+    new RuntimeNodeInstrumentation(), 
+  ],
 });
 
 process.on("uncaughtException", async (err) => {
@@ -74,7 +81,9 @@ process.on("unhandledRejection", (reason, promise) => {
   logger.error("Unhandled Promise Rejection", { error: reason });
 });
 
+
 sdk.start();
+
 setupN8nOpenTelemetry();
 
 console.log("OpenTelemetry SDK started for n8n");
