@@ -17,6 +17,8 @@ RUN npm install -g --legacy-peer-deps \
     @opentelemetry/instrumentation@0.43.0 \
     @opentelemetry/instrumentation-runtime-node@latest \
     @opentelemetry/instrumentation-winston@0.43.0 \
+    @opentelemetry/api-logs@0.43.0 \
+    @opentelemetry/sdk-logs@0.43.0 \
     @opentelemetry/winston-transport@0.10.0 \
     winston@3.9.0 \
     flat

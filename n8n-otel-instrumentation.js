@@ -58,6 +58,15 @@ function setupN8nOpenTelemetry() {
         'n8n.workflow.name': workflowName,
         'status': 'started' 
       });
+      
+      console.log(`[OTEL_DEBUG] Executando workflow: ${workflowName}`);
+
+      if (global.n8nLogger) {
+        global.n8nLogger.info(`Executando workflow: ${workflowName}`, { 
+        workflowId: workflowId,
+        customTag: "TCC-Observability" 
+        });
+      }
 
       const span = tracer.startSpan('n8n.workflow.execute', {
         attributes: workflowAttributes,

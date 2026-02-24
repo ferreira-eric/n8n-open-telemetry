@@ -4,86 +4,89 @@ require('module').Module._initPaths();
 "use strict";
 
 const opentelemetry = require("@opentelemetry/sdk-node");
+const { Resource } = require("@opentelemetry/resources");
+const { SemanticResourceAttributes } = require("@opentelemetry/semantic-conventions");
 const { OTLPTraceExporter } = require("@opentelemetry/exporter-trace-otlp-http");
-const { OTLPLogExporter } = require("@opentelemetry/exporter-logs-otlp-http");
 const { PeriodicExportingMetricReader } = require('@opentelemetry/sdk-metrics');
 const { OTLPMetricExporter } = require('@opentelemetry/exporter-metrics-otlp-http');
 const { RuntimeNodeInstrumentation } = require('@opentelemetry/instrumentation-runtime-node');
 const { getNodeAutoInstrumentations } = require("@opentelemetry/auto-instrumentations-node");
-const { registerInstrumentations } = require("@opentelemetry/instrumentation");
-const { Resource } = require("@opentelemetry/resources");
-const { SemanticResourceAttributes } = require("@opentelemetry/semantic-conventions");
-const setupN8nOpenTelemetry = require("./n8n-otel-instrumentation");
+const { LoggerProvider, BatchLogRecordProcessor } = require('@opentelemetry/sdk-logs');
+const { OTLPLogExporter } = require("@opentelemetry/exporter-logs-otlp-http");
+const { logs } = require('@opentelemetry/api-logs'); // API Global
 const winston = require("winston");
+const { OpenTelemetryTransportV3 } = require('@opentelemetry/winston-transport');
 
-const logger = winston.createLogger({
-  level: "info",
-  format: winston.format.json(),
+const loggerConsole = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-const autoInstrumentations = getNodeAutoInstrumentations({
-  "@opentelemetry/instrumentation-dns": { enabled: false },
-  "@opentelemetry/instrumentation-net": { enabled: false },
-  "@opentelemetry/instrumentation-tls": { enabled: false },
-  "@opentelemetry/instrumentation-fs": { enabled: false },
-  "@opentelemetry/instrumentation-pg": { enabled: false }
+
+const resource = new Resource({
+  [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "n8n",
 });
 
-registerInstrumentations({
-  instrumentations: [
-    autoInstrumentations,
-    new RuntimeNodeInstrumentation(), 
-  ],
+const loggerProvider = new LoggerProvider({
+  resource: resource,
 });
+
+loggerProvider.addLogRecordProcessor(
+  new BatchLogRecordProcessor(
+    new OTLPLogExporter({
+      url: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || "http://otel-collector:4318/v1/logs",
+    })
+  )
+);
+
+logs.setGlobalLoggerProvider(loggerProvider);
 
 const sdk = new opentelemetry.NodeSDK({
-  logRecordProcessors: [
-    new opentelemetry.logs.SimpleLogRecordProcessor(new OTLPLogExporter({
-      url: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT || "http://otel-collector:4318/v1/logs",
-    })),
-  ],
-  resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "n8n",
-  }),
+  resource: resource,
+  // Traces
   traceExporter: new OTLPTraceExporter({
     url: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || "http://otel-collector:4318/v1/traces",
   }),
-  
+  // Metrics
   metricReader: new PeriodicExportingMetricReader({
     exporter: new OTLPMetricExporter({
       url: process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT || "http://otel-collector:4318/v1/metrics",
     }),
-    exportIntervalMillis: 10000, // Exporta a cada 10s
+    exportIntervalMillis: 10000,
   }),
   instrumentations: [
-    autoInstrumentations,
-    new RuntimeNodeInstrumentation(), 
+    getNodeAutoInstrumentations({
+      "@opentelemetry/instrumentation-dns": { enabled: false },
+      "@opentelemetry/instrumentation-net": { enabled: false },
+      "@opentelemetry/instrumentation-tls": { enabled: false },
+      "@opentelemetry/instrumentation-fs": { enabled: false },
+      "@opentelemetry/instrumentation-pg": { enabled: false }
+    }),
+    new RuntimeNodeInstrumentation(),
   ],
 });
 
-process.on("uncaughtException", async (err) => {
-  logger.error("Uncaught Exception", { error: err });
-  const span = opentelemetry.trace.getActiveSpan();
-  if (span) {
-    span.recordException(err);
-    span.setStatus({ code: 2, message: err.message });
-  }
-  try {
-    await sdk.forceFlush();
-  } catch (flushErr) {
-    logger.error("Error flushing telemetry data", { error: flushErr });
-  }
-  process.exit(1);
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-  logger.error("Unhandled Promise Rejection", { error: reason });
-});
-
-
 sdk.start();
 
+const logger = winston.createLogger({
+  level: "info",
+  transports: [
+    new winston.transports.Console(), 
+    new OpenTelemetryTransportV3(),   
+  ],
+});
+
+global.n8nLogger = logger;
+
+const setupN8nOpenTelemetry = require("./n8n-otel-instrumentation");
 setupN8nOpenTelemetry();
 
-console.log("OpenTelemetry SDK started for n8n");
+console.log("OpenTelemetry SDK & Logging started for n8n (Manual Provider Mode)");
+
+process.on("uncaughtException", async (err) => {
+  console.error("Uncaught Exception", err);
+  if (global.n8nLogger) global.n8nLogger.error("Uncaught Exception", { error: err.message });
+  try {
+    await sdk.shutdown();
+  } catch (e) {}
+  process.exit(1);
+});

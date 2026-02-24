@@ -20,7 +20,7 @@ exporters:
 
   elasticsearch:
     endpoints: ["http://elasticsearch:9200"]
-    logs_index: "n8n-logs-%{+yyyy.MM.dd}" 
+    logs_index: "n8n-logs"
 
 processors:
   batch:
