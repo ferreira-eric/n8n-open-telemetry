@@ -25,8 +25,18 @@ function setupN8nOpenTelemetry() {
       unit: '1',
     });
 
+    const workflowFailedCounter = meter.createCounter('n8n.workflow.executions.failed', {
+      description: 'Count failed workflow executions',
+      unit: '1',
+    });
+
     const nodeCounter = meter.createCounter('n8n.node.executions', {
       description: 'Count nodes execution',
+      unit: '1',
+    });
+
+    const nodeFailedCounter = meter.createCounter('n8n.node.executions.failed', {
+      description: 'Count failed node executions',
       unit: '1',
     });
 
@@ -59,12 +69,13 @@ function setupN8nOpenTelemetry() {
         'status': 'started' 
       });
       
-      console.log(`[OTEL_DEBUG] Executando workflow: ${workflowName}`);
+      console.log(`[OTEL_DEBUG]Starting workflow: ${workflowName}`);
 
       if (global.n8nLogger) {
-        global.n8nLogger.info(`Executando workflow: ${workflowName}`, { 
-        workflowId: workflowId,
-        customTag: "TCC-Observability" 
+        global.n8nLogger.info(`Starting workflow: ${workflowName}`, { 
+          workflowId: workflowId,
+          workflowName: workflowName,
+          customTag: "TCC-Observability" 
         });
       }
 
@@ -86,17 +97,41 @@ function setupN8nOpenTelemetry() {
                 code: SpanStatusCode.ERROR,
                 message: String(err.message || err),
               });
+              
               workflowCounter.add(1, { 
                 'n8n.workflow.id': workflowId, 
                 'n8n.workflow.name': workflowName,
                 'status': 'error' 
               });
+
+              workflowFailedCounter.add(1, {
+                'n8n.workflow.id': workflowId,
+                'n8n.workflow.name': workflowName,
+              });
+
+              if (global.n8nLogger) {
+                global.n8nLogger.error(`Error executing workflow: ${workflowName}`, { 
+                  workflowId: workflowId,
+                  workflowName: workflowName,
+                  error_message: String(err.message || err),
+                  customTag: "TCC-Observability" 
+                });
+              }
+
             } else {
                workflowCounter.add(1, { 
                 'n8n.workflow.id': workflowId, 
                 'n8n.workflow.name': workflowName,
                 'status': 'success' 
               });
+
+              if (global.n8nLogger) {
+                global.n8nLogger.info(`Workflow completed successfully: ${workflowName}`, { 
+                  workflowId: workflowId,
+                  workflowName: workflowName,
+                  customTag: "TCC-Observability" 
+                });
+              }
             }
           },
           (error) => {
@@ -110,6 +145,20 @@ function setupN8nOpenTelemetry() {
                 'n8n.workflow.name': workflowName,
                 'status': 'error' 
             });
+
+            workflowFailedCounter.add(1, {
+              'n8n.workflow.id': workflowId,
+              'n8n.workflow.name': workflowName,
+            });
+
+            if (global.n8nLogger) {
+              global.n8nLogger.error(`Critical workflow failure: ${workflowName}`, { 
+                workflowId: workflowId,
+                workflowName: workflowName,
+                error_message: String(error.message || error),
+                customTag: "TCC-Observability" 
+              });
+            }
           }
         ).finally(() => {
           span.end();
@@ -133,25 +182,76 @@ function setupN8nOpenTelemetry() {
     ) {
       if (!this) return originalRunNode.apply(this, arguments);
 
-      nodeCounter.add(1, {
-         'n8n.workflow.id': workflow?.id ?? 'unknown',
-         'n8n.node.name': executionData?.node?.name ?? 'unknown',
-         'n8n.node.type': executionData?.node?.type ?? 'unknown'
-      });
+      const workflowId = workflow?.id ?? 'unknown';
+      const nodeName = executionData?.node?.name ?? 'unknown';
+      const nodeType = executionData?.node?.type ?? 'unknown';
       const executionId = additionalData?.executionId ?? 'unknown';
+
+      nodeCounter.add(1, {
+         'n8n.workflow.id': workflowId,
+         'n8n.node.name': nodeName,
+         'n8n.node.type': nodeType
+      });
+      
       const nodeAttributes = {
-        'n8n.workflow.id': workflow?.id ?? 'unknown',
+        'n8n.workflow.id': workflowId,
         'n8n.execution.id': executionId,
+        'n8n.node.name': nodeName,
+        'n8n.node.type': nodeType
       };
+
+      // LOG: Início do Nó
+      if (global.n8nLogger) {
+        global.n8nLogger.info(`Running node: ${nodeName}`, { 
+          workflowId: workflowId,
+          executionId: executionId,
+          nodeName: nodeName,
+          nodeType: nodeType,
+          customTag: "TCC-Observability" 
+        });
+      }
 
       return tracer.startActiveSpan(
         `n8n.node.execute`,
         { attributes: nodeAttributes, kind: SpanKind.INTERNAL },
         async (nodeSpan) => {
              try {
-                return await originalRunNode.apply(this, arguments);
+                const result = await originalRunNode.apply(this, arguments);
+                
+                if (global.n8nLogger) {
+                  global.n8nLogger.info(`Node successfully completed: ${nodeName}`, { 
+                    workflowId: workflowId,
+                    executionId: executionId,
+                    nodeName: nodeName,
+                    customTag: "TCC-Observability" 
+                  });
+                }
+
+                return result;
              } catch (error) {
                 nodeSpan.recordException(error);
+                nodeSpan.setStatus({
+                  code: SpanStatusCode.ERROR,
+                  message: String(error.message || error),
+                });
+
+                nodeFailedCounter.add(1, {
+                  'n8n.workflow.id': workflowId,
+                  'n8n.node.name': nodeName,
+                  'n8n.node.type': nodeType
+                });
+
+                if (global.n8nLogger) {
+                  global.n8nLogger.error(`Error executing node: ${nodeName}`, { 
+                    workflowId: workflowId,
+                    executionId: executionId,
+                    nodeName: nodeName,
+                    nodeType: nodeType,
+                    error_message: String(error.message || error),
+                    customTag: "TCC-Observability" 
+                  });
+                }
+
                 throw error;
              } finally {
                 nodeSpan.end();

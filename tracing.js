@@ -21,7 +21,6 @@ const loggerConsole = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-
 const resource = new Resource({
   [SemanticResourceAttributes.SERVICE_NAME]: process.env.OTEL_SERVICE_NAME || "n8n",
 });
