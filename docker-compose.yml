@@ -17,6 +17,7 @@ services:
       - N8N_METRICS=true
       - N8N_METRICS_INCLUDE_MESSAGE_EVENT_BUS_METRICS=true
       - N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL=true
+      - WEBHOOK_URL=http://localhost:5678
       # === Postgres === #
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
