@@ -40,6 +40,19 @@ function setupN8nOpenTelemetry() {
       unit: '1',
     });
 
+    // Histograms for duration measurement (Experiment 1 & 2)
+    const workflowDurationHistogram = meter.createHistogram('n8n.workflow.duration', {
+      description: 'Duration of workflow executions in milliseconds',
+      unit: 'ms',
+      advice: { explicitBucketBoundaries: [100, 500, 1000, 2000, 5000, 10000, 30000] }
+    });
+
+    const nodeDurationHistogram = meter.createHistogram('n8n.node.duration', {
+      description: 'Duration of node executions in milliseconds',
+      unit: 'ms',
+      advice: { explicitBucketBoundaries: [10, 50, 100, 500, 1000, 5000] }
+    });
+
     let WorkflowExecute;
     try {
       WorkflowExecute = require('/usr/local/lib/node_modules/n8n/node_modules/n8n-core').WorkflowExecute;
@@ -51,7 +64,7 @@ function setupN8nOpenTelemetry() {
 
     // --- PATCH WORKFLOW ---
     const originalProcessRun = WorkflowExecute.prototype.processRunExecutionData;
-    
+
     WorkflowExecute.prototype.processRunExecutionData = function (workflow) {
       const wfData = workflow || {};
       const workflowId = wfData?.id ?? ""
@@ -63,19 +76,22 @@ function setupN8nOpenTelemetry() {
         ...flat(wfData?.settings ?? {}, { delimiter: '.', transformKey: (key) => `n8n.workflow.settings.${key}` }),
       };
 
-      workflowCounter.add(1, { 
-        'n8n.workflow.id': workflowId, 
+      workflowCounter.add(1, {
+        'n8n.workflow.id': workflowId,
         'n8n.workflow.name': workflowName,
-        'status': 'started' 
+        'status': 'started'
       });
-      
+
+      // Capture start time for overhead measurement (Experiment 2)
+      const wfStartHr = process.hrtime.bigint();
+
       console.log(`[OTEL_DEBUG]Starting workflow: ${workflowName}`);
 
       if (global.n8nLogger) {
-        global.n8nLogger.info(`Starting workflow: ${workflowName}`, { 
+        global.n8nLogger.info(`Starting workflow: ${workflowName}`, {
           workflowId: workflowId,
           workflowName: workflowName,
-          customTag: "TCC-Observability" 
+          customTag: "TCC-Observability"
         });
       }
 
@@ -97,11 +113,11 @@ function setupN8nOpenTelemetry() {
                 code: SpanStatusCode.ERROR,
                 message: String(err.message || err),
               });
-              
-              workflowCounter.add(1, { 
-                'n8n.workflow.id': workflowId, 
+
+              workflowCounter.add(1, {
+                'n8n.workflow.id': workflowId,
                 'n8n.workflow.name': workflowName,
-                'status': 'error' 
+                'status': 'error'
               });
 
               workflowFailedCounter.add(1, {
@@ -110,26 +126,26 @@ function setupN8nOpenTelemetry() {
               });
 
               if (global.n8nLogger) {
-                global.n8nLogger.error(`Error executing workflow: ${workflowName}`, { 
+                global.n8nLogger.error(`Error executing workflow: ${workflowName}`, {
                   workflowId: workflowId,
                   workflowName: workflowName,
                   error_message: String(err.message || err),
-                  customTag: "TCC-Observability" 
+                  customTag: "TCC-Observability"
                 });
               }
 
             } else {
-               workflowCounter.add(1, { 
-                'n8n.workflow.id': workflowId, 
+              workflowCounter.add(1, {
+                'n8n.workflow.id': workflowId,
                 'n8n.workflow.name': workflowName,
-                'status': 'success' 
+                'status': 'success'
               });
 
               if (global.n8nLogger) {
-                global.n8nLogger.info(`Workflow completed successfully: ${workflowName}`, { 
+                global.n8nLogger.info(`Workflow completed successfully: ${workflowName}`, {
                   workflowId: workflowId,
                   workflowName: workflowName,
-                  customTag: "TCC-Observability" 
+                  customTag: "TCC-Observability"
                 });
               }
             }
@@ -140,10 +156,10 @@ function setupN8nOpenTelemetry() {
               code: SpanStatusCode.ERROR,
               message: String(error.message || error),
             });
-            workflowCounter.add(1, { 
-                'n8n.workflow.id': workflowId, 
-                'n8n.workflow.name': workflowName,
-                'status': 'error' 
+            workflowCounter.add(1, {
+              'n8n.workflow.id': workflowId,
+              'n8n.workflow.name': workflowName,
+              'status': 'error'
             });
 
             workflowFailedCounter.add(1, {
@@ -152,15 +168,34 @@ function setupN8nOpenTelemetry() {
             });
 
             if (global.n8nLogger) {
-              global.n8nLogger.error(`Critical workflow failure: ${workflowName}`, { 
+              global.n8nLogger.error(`Critical workflow failure: ${workflowName}`, {
                 workflowId: workflowId,
                 workflowName: workflowName,
                 error_message: String(error.message || error),
-                customTag: "TCC-Observability" 
+                customTag: "TCC-Observability"
               });
             }
           }
         ).finally(() => {
+          // total_duration_ms = tempo real do workflow + overhead da instrumentação
+          // Compare este valor com o tempo medido via API do n8n no modo OTEL_ENABLED=false
+          const durationMs = Number(process.hrtime.bigint() - wfStartHr) / 1_000_000;
+          span.setAttribute('n8n.workflow.duration_ms', durationMs);
+          workflowDurationHistogram.record(durationMs, {
+            'n8n.workflow.id': workflowId,
+            'n8n.workflow.name': workflowName,
+          });
+          console.log(`[OTEL_TIMING] Workflow "${workflowName}" total_duration=${durationMs.toFixed(3)}ms`);
+
+          if (global.n8nLogger) {
+            global.n8nLogger.info('Workflow execution time', {
+              workflowId,
+              workflowName,
+              total_duration_ms: durationMs, // inclui overhead da instrumentação
+              customTag: 'TCC-Observability'
+            });
+          }
+
           span.end();
         });
 
@@ -170,7 +205,7 @@ function setupN8nOpenTelemetry() {
 
     // --- PATCH NODE ---
     const originalRunNode = WorkflowExecute.prototype.runNode;
-    
+
     WorkflowExecute.prototype.runNode = async function (
       workflow,
       executionData,
@@ -188,11 +223,11 @@ function setupN8nOpenTelemetry() {
       const executionId = additionalData?.executionId ?? 'unknown';
 
       nodeCounter.add(1, {
-         'n8n.workflow.id': workflowId,
-         'n8n.node.name': nodeName,
-         'n8n.node.type': nodeType
+        'n8n.workflow.id': workflowId,
+        'n8n.node.name': nodeName,
+        'n8n.node.type': nodeType
       });
-      
+
       const nodeAttributes = {
         'n8n.workflow.id': workflowId,
         'n8n.execution.id': executionId,
@@ -202,60 +237,93 @@ function setupN8nOpenTelemetry() {
 
       // LOG: Início do Nó
       if (global.n8nLogger) {
-        global.n8nLogger.info(`Running node: ${nodeName}`, { 
+        global.n8nLogger.info(`Running node: ${nodeName}`, {
           workflowId: workflowId,
           executionId: executionId,
           nodeName: nodeName,
           nodeType: nodeType,
-          customTag: "TCC-Observability" 
+          customTag: "TCC-Observability"
         });
       }
+
+      // Capture node start time for overhead measurement (Experiment 2)
+      const nodeStartHr = process.hrtime.bigint();
 
       return tracer.startActiveSpan(
         `n8n.node.execute`,
         { attributes: nodeAttributes, kind: SpanKind.INTERNAL },
         async (nodeSpan) => {
-             try {
-                const result = await originalRunNode.apply(this, arguments);
-                
-                if (global.n8nLogger) {
-                  global.n8nLogger.info(`Node successfully completed: ${nodeName}`, { 
-                    workflowId: workflowId,
-                    executionId: executionId,
-                    nodeName: nodeName,
-                    customTag: "TCC-Observability" 
-                  });
-                }
+          try {
+            const result = await originalRunNode.apply(this, arguments);
 
-                return result;
-             } catch (error) {
-                nodeSpan.recordException(error);
-                nodeSpan.setStatus({
-                  code: SpanStatusCode.ERROR,
-                  message: String(error.message || error),
-                });
+            // Record node real execution duration (Experiment 2)
+            const nodeDurationMs = Number(process.hrtime.bigint() - nodeStartHr) / 1_000_000;
+            nodeSpan.setAttribute('n8n.node.duration_ms', nodeDurationMs);
+            nodeDurationHistogram.record(nodeDurationMs, {
+              'n8n.workflow.id': workflowId,
+              'n8n.node.name': nodeName,
+              'n8n.node.type': nodeType,
+              status: 'success'
+            });
 
-                nodeFailedCounter.add(1, {
-                  'n8n.workflow.id': workflowId,
-                  'n8n.node.name': nodeName,
-                  'n8n.node.type': nodeType
-                });
+            // Inject traceId for Kibana ↔ Jaeger correlation (Experiment 4)
+            const spanCtx = nodeSpan.spanContext();
+            if (global.n8nLogger) {
+              global.n8nLogger.info(`Node successfully completed: ${nodeName}`, {
+                workflowId: workflowId,
+                executionId: executionId,
+                nodeName: nodeName,
+                duration_ms: nodeDurationMs,
+                traceId: spanCtx.traceId,
+                spanId: spanCtx.spanId,
+                customTag: "TCC-Observability"
+              });
+            }
 
-                if (global.n8nLogger) {
-                  global.n8nLogger.error(`Error executing node: ${nodeName}`, { 
-                    workflowId: workflowId,
-                    executionId: executionId,
-                    nodeName: nodeName,
-                    nodeType: nodeType,
-                    error_message: String(error.message || error),
-                    customTag: "TCC-Observability" 
-                  });
-                }
+            return result;
+          } catch (error) {
+            nodeSpan.recordException(error);
+            nodeSpan.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: String(error.message || error),
+            });
 
-                throw error;
-             } finally {
-                nodeSpan.end();
-             }
+            nodeFailedCounter.add(1, {
+              'n8n.workflow.id': workflowId,
+              'n8n.node.name': nodeName,
+              'n8n.node.type': nodeType
+            });
+
+            // Record failed node duration too
+            const nodeFailDurationMs = Number(process.hrtime.bigint() - nodeStartHr) / 1_000_000;
+            nodeSpan.setAttribute('n8n.node.duration_ms', nodeFailDurationMs);
+            nodeDurationHistogram.record(nodeFailDurationMs, {
+              'n8n.workflow.id': workflowId,
+              'n8n.node.name': nodeName,
+              'n8n.node.type': nodeType,
+              status: 'error'
+            });
+
+            // Inject traceId for Kibana ↔ Jaeger correlation on error (Experiment 4)
+            const spanCtxErr = nodeSpan.spanContext();
+            if (global.n8nLogger) {
+              global.n8nLogger.error(`Error executing node: ${nodeName}`, {
+                workflowId: workflowId,
+                executionId: executionId,
+                nodeName: nodeName,
+                nodeType: nodeType,
+                duration_ms: nodeFailDurationMs,
+                error_message: String(error.message || error),
+                traceId: spanCtxErr.traceId,
+                spanId: spanCtxErr.spanId,
+                customTag: "TCC-Observability"
+              });
+            }
+
+            throw error;
+          } finally {
+            nodeSpan.end();
+          }
         }
       );
     };

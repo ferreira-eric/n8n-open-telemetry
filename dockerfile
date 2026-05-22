@@ -26,7 +26,7 @@ RUN npm install -g --legacy-peer-deps \
 # Estágio 2: Imagem final do n8n
 # ... (mantenha o estágio builder igual)
 
-FROM n8nio/n8n:latest
+FROM n8nio/n8n:1.110.1
 
 USER root
 

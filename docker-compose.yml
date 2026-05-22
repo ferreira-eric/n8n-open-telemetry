@@ -9,15 +9,26 @@ services:
       - N8N_HOST=n8n
       - N8N_PORT=5678
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      # ── Chave de criptografia FIXA ────────────────────────────────────────────
+      # IMPORTANTE: sem esta variável o n8n gera uma chave nova a cada rebuild,
+      # tornando TODAS as credenciais cadastradas ilegíveis.
+      # Gere uma vez com: openssl rand -hex 32
+      # e nunca mais altere este valor.
+      - N8N_ENCRYPTION_KEY=0c212dd042f9b754271dd6895feed96d2801dcc204d538df9834278b339f1462
       - OTEL_SERVICE_NAME=n8n
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
       - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
       - OTEL_LOG_LEVEL=info
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # ── Controle de Instrumentação OTel ──────────────────────────────────────
+      # true  → n8n inicia COM instrumentação completa (Prometheus, Jaeger, Kibana)
+      # false → n8n inicia SEM instrumentação (baseline limpa para comparação)
+      # Para trocar de modo: edite e rode: docker compose up -d --build n8n
+      - OTEL_ENABLED=true
       - N8N_METRICS=true
       - N8N_METRICS_INCLUDE_MESSAGE_EVENT_BUS_METRICS=true
       - N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL=true
-      - WEBHOOK_URL=http://localhost:5678
+      - WEBHOOK_URL=https://vina-unfulminant-daubingly.ngrok-free.dev
       # === Postgres === #
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
